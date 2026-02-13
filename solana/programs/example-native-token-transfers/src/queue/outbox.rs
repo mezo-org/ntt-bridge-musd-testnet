@@ -1,7 +1,6 @@
-use std::ops::{Deref, DerefMut};
-
 use anchor_lang::prelude::*;
 use ntt_messages::{chain_id::ChainId, trimmed_amount::TrimmedAmount};
+use std::ops::{Deref, DerefMut};
 
 use crate::{bitmap::*, clock::current_timestamp, error::NTTError};
 
@@ -23,7 +22,6 @@ pub struct OutboxItem {
 impl OutboxItem {
     /// Attempt to release the transfer.
     /// Returns true if the transfer was released, false if it was not yet time to release it.
-    /// TODO: this is duplicated in inbox.rs. factor out?
     pub fn try_release(&mut self, transceiver_index: u8) -> Result<bool> {
         let now = current_timestamp();
 

@@ -1,35 +1,42 @@
 #![cfg(feature = "test-sbf")]
 #![feature(type_changing_struct_update)]
 
-use common::setup::OTHER_CHAIN;
-use ntt_messages::chain_id::ChainId;
-use ntt_messages::mode::Mode;
-use ntt_messages::transceivers::wormhole::{
-    WormholeTransceiverInfo, WormholeTransceiverRegistration,
+use ntt_messages::{
+    chain_id::ChainId,
+    mode::Mode,
+    transceivers::wormhole::{WormholeTransceiverInfo, WormholeTransceiverRegistration},
 };
 use solana_program_test::*;
 use solana_sdk::{signature::Keypair, signer::Signer};
-use wormhole_anchor_sdk::wormhole::PostedVaa;
-
-use crate::common::query::GetAccountDataAnchor;
-use crate::common::setup::{setup, OTHER_TRANSCEIVER};
-use crate::sdk::transceivers::wormhole::instructions::broadcast_id::{broadcast_id, BroadcastId};
-use crate::{
-    common::submit::Submittable,
-    sdk::transceivers::wormhole::instructions::broadcast_peer::{broadcast_peer, BroadcastPeer},
+use test_utils::{
+    common::{
+        fixtures::{OTHER_CHAIN, OTHER_TRANSCEIVER},
+        query::GetAccountDataAnchor,
+        submit::Submittable,
+    },
+    helpers::setup,
+    sdk::{
+        accounts::{good_ntt, NTTAccounts},
+        transceivers::{
+            accounts::good_ntt_transceiver,
+            instructions::{
+                broadcast_id::{broadcast_id, BroadcastId},
+                broadcast_peer::{broadcast_peer, BroadcastPeer},
+            },
+        },
+    },
 };
-
-pub mod common;
-pub mod sdk;
+use wormhole_anchor_sdk::wormhole::PostedVaa;
 
 #[tokio::test]
 async fn test_broadcast_peer() {
-    let (mut ctx, test_data) = setup(Mode::Locking).await;
+    let (mut ctx, _test_data) = setup(Mode::Locking).await;
 
     let wh_message = Keypair::new();
 
     broadcast_peer(
-        &test_data.ntt,
+        &good_ntt,
+        &good_ntt_transceiver,
         BroadcastPeer {
             payer: ctx.payer.pubkey(),
             wormhole_message: wh_message.pubkey(),
@@ -60,7 +67,8 @@ async fn test_broadcast_id() {
     let wh_message = Keypair::new();
 
     broadcast_id(
-        &test_data.ntt,
+        &good_ntt,
+        &good_ntt_transceiver,
         BroadcastId {
             payer: ctx.payer.pubkey(),
             wormhole_message: wh_message.pubkey(),
@@ -78,7 +86,7 @@ async fn test_broadcast_id() {
     assert_eq!(
         *msg.data(),
         WormholeTransceiverInfo {
-            manager_address: test_data.ntt.program.to_bytes(),
+            manager_address: good_ntt.program().to_bytes(),
             manager_mode: Mode::Locking,
             token_address: test_data.mint.to_bytes(),
             token_decimals: 9,

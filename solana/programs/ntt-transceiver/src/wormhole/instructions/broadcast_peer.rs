@@ -18,8 +18,8 @@ pub struct BroadcastPeer<'info> {
     pub peer: Account<'info, TransceiverPeer>,
 
     /// CHECK: initialized and written to by wormhole core bridge
-    #[account(mut)]
-    pub wormhole_message: Signer<'info>,
+    #[account(mut, seeds = [&emitter.key.to_bytes()], bump, seeds::program = wormhole_svm_definitions::solana::POST_MESSAGE_SHIM_PROGRAM_ID)]
+    pub wormhole_message: UncheckedAccount<'info>,
 
     #[account(
         seeds = [b"emitter"],
@@ -36,6 +36,9 @@ pub struct BroadcastPeerArgs {
     pub chain_id: u16,
 }
 
+/// SECURITY: Owner checks are disabled. [`BroadcastPeer::emitter`] is enforced to be a PDA.
+#[allow(unknown_lints)]
+#[allow(missing_owner_check)]
 pub fn broadcast_peer(ctx: Context<BroadcastPeer>, args: BroadcastPeerArgs) -> Result<()> {
     let accs = ctx.accounts;
 
@@ -52,7 +55,6 @@ pub fn broadcast_peer(ctx: Context<BroadcastPeer>, args: BroadcastPeerArgs) -> R
         accs.emitter.to_account_info(),
         ctx.bumps.emitter,
         &message,
-        &[],
     )?;
 
     Ok(())

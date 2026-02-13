@@ -26,6 +26,8 @@ import "./mocks/DummyTransceiver.sol";
 import "../src/mocks/DummyToken.sol";
 import "./mocks/MockNttManager.sol";
 
+contract DummyManager {}
+
 // TODO: set this up so the common functionality tests can be run against both
 contract TestNttManager is Test, IRateLimiterEvents {
     MockNttManagerContract nttManager;
@@ -150,14 +152,14 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
         TransceiverStructs.NttManagerMessage memory nttManagerMessage;
         bytes memory transceiverMessage;
-        (nttManagerMessage, transceiverMessage) = TransceiverHelpersLib
-            .buildTransceiverMessageWithNttManagerPayload(
-            0,
-            bytes32(0),
-            peer,
-            toWormholeFormat(address(nttManagerZeroRateLimiter)),
-            abi.encode("payload")
-        );
+        (nttManagerMessage, transceiverMessage) =
+            TransceiverHelpersLib.buildTransceiverMessageWithNttManagerPayload(
+                0,
+                bytes32(0),
+                peer,
+                toWormholeFormat(address(nttManagerZeroRateLimiter)),
+                abi.encode("payload")
+            );
 
         e1.receiveMessage(transceiverMessage);
 
@@ -333,8 +335,9 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
     function test_transceiverIncompatibleNttManager() public {
         // Transceiver instantiation reverts if the nttManager doesn't have the proper token method
+        address dummyManager = address(new DummyManager());
         vm.expectRevert(bytes(""));
-        new DummyTransceiver(address(0xBEEF));
+        new DummyTransceiver(dummyManager);
     }
 
     function test_transceiverWrongNttManager() public {
@@ -604,10 +607,14 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
         TransceiverStructs.NttManagerMessage memory nttManagerMessage;
         bytes memory transceiverMessage;
-        (nttManagerMessage, transceiverMessage) = TransceiverHelpersLib
-            .buildTransceiverMessageWithNttManagerPayload(
-            0, bytes32(0), peer, toWormholeFormat(address(nttManagerOther)), abi.encode("payload")
-        );
+        (nttManagerMessage, transceiverMessage) =
+            TransceiverHelpersLib.buildTransceiverMessageWithNttManagerPayload(
+                0,
+                bytes32(0),
+                peer,
+                toWormholeFormat(address(nttManagerOther)),
+                abi.encode("payload")
+            );
 
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -627,10 +634,14 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
         TransceiverStructs.NttManagerMessage memory nttManagerMessage;
         bytes memory transceiverMessage;
-        (nttManagerMessage, transceiverMessage) = TransceiverHelpersLib
-            .buildTransceiverMessageWithNttManagerPayload(
-            0, bytes32(0), peer, toWormholeFormat(address(nttManagerOther)), abi.encode("payload")
-        );
+        (nttManagerMessage, transceiverMessage) =
+            TransceiverHelpersLib.buildTransceiverMessageWithNttManagerPayload(
+                0,
+                bytes32(0),
+                peer,
+                toWormholeFormat(address(nttManagerOther)),
+                abi.encode("payload")
+            );
 
         e1.receiveMessage(transceiverMessage);
 
@@ -650,10 +661,14 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
         TransceiverStructs.NttManagerMessage memory nttManagerMessage;
         bytes memory transceiverMessage;
-        (nttManagerMessage, transceiverMessage) = TransceiverHelpersLib
-            .buildTransceiverMessageWithNttManagerPayload(
-            0, bytes32(0), peer, toWormholeFormat(address(nttManagerOther)), abi.encode("payload")
-        );
+        (nttManagerMessage, transceiverMessage) =
+            TransceiverHelpersLib.buildTransceiverMessageWithNttManagerPayload(
+                0,
+                bytes32(0),
+                peer,
+                toWormholeFormat(address(nttManagerOther)),
+                abi.encode("payload")
+            );
 
         bytes32 hash = TransceiverStructs.nttManagerMessageDigest(
             TransceiverHelpersLib.SENDING_CHAIN_ID, nttManagerMessage
@@ -926,14 +941,14 @@ contract TestNttManager is Test, IRateLimiterEvents {
 
         bytes memory transceiverMessage;
         TransceiverStructs.NttManagerMessage memory nttManagerMessage;
-        (nttManagerMessage, transceiverMessage) = TransceiverHelpersLib
-            .buildTransceiverMessageWithNttManagerPayload(
-            0,
-            toWormholeFormat(address(0x1)),
-            toWormholeFormat(address(nttManagerOther)),
-            toWormholeFormat(address(nttManager)),
-            tokenTransferMessage
-        );
+        (nttManagerMessage, transceiverMessage) =
+            TransceiverHelpersLib.buildTransceiverMessageWithNttManagerPayload(
+                0,
+                toWormholeFormat(address(0x1)),
+                toWormholeFormat(address(nttManagerOther)),
+                toWormholeFormat(address(nttManager)),
+                tokenTransferMessage
+            );
 
         // Inbound transfers can't be completed
         vm.expectRevert(abi.encodeWithSelector(InvalidFork.selector, evmChainId, chainId));

@@ -1,53 +1,23 @@
 #![cfg(feature = "test-sbf")]
 #![feature(type_changing_struct_update)]
 
-use anchor_lang::{prelude::Pubkey, system_program::System, Id};
-use example_native_token_transfers::{
-    config::Config, error::NTTError, registered_transceiver::RegisteredTransceiver,
-};
+use anchor_lang::{system_program::System, Id};
+use example_native_token_transfers::error::NTTError;
 use ntt_messages::mode::Mode;
 use solana_program_test::*;
 use solana_sdk::{instruction::InstructionError, signer::Signer, transaction::TransactionError};
-
-use crate::{
-    common::{
-        query::GetAccountDataAnchor,
-        setup::{setup, TestData},
-        submit::Submittable,
-    },
-    sdk::instructions::admin::{
-        deregister_transceiver, register_transceiver, set_threshold, DeregisterTransceiver,
-        RegisterTransceiver, SetThreshold,
+use test_utils::{
+    common::submit::Submittable,
+    helpers::{assert_threshold, assert_transceiver_id, setup},
+    sdk::{
+        accounts::good_ntt,
+        instructions::admin::{
+            deregister_transceiver, register_transceiver, set_threshold, DeregisterTransceiver,
+            RegisterTransceiver, SetThreshold,
+        },
+        transceivers::accounts::{good_ntt_transceiver, NTTTransceiverAccounts},
     },
 };
-
-pub mod common;
-pub mod sdk;
-
-async fn assert_threshold(
-    ctx: &mut ProgramTestContext,
-    test_data: &TestData,
-    expected_threshold: u8,
-) {
-    let config_account: Config = ctx.get_account_data_anchor(test_data.ntt.config()).await;
-    assert_eq!(config_account.threshold, expected_threshold);
-}
-
-async fn assert_transceiver_id(
-    ctx: &mut ProgramTestContext,
-    test_data: &TestData,
-    transceiver: &Pubkey,
-    expected_id: u8,
-) {
-    let registered_transceiver_account: RegisteredTransceiver = ctx
-        .get_account_data_anchor(test_data.ntt.registered_transceiver(transceiver))
-        .await;
-    assert_eq!(
-        registered_transceiver_account.transceiver_address,
-        *transceiver
-    );
-    assert_eq!(registered_transceiver_account.id, expected_id);
-}
 
 #[tokio::test]
 async fn test_invalid_transceiver() {
@@ -55,7 +25,7 @@ async fn test_invalid_transceiver() {
 
     // try registering system program
     let err = register_transceiver(
-        &test_data.ntt,
+        &good_ntt,
         RegisterTransceiver {
             payer: ctx.payer.pubkey(),
             owner: test_data.program_owner.pubkey(),
@@ -81,7 +51,7 @@ async fn test_reregister_all_transceivers() {
     // Transceivers are expected to be executable which requires them to be added on setup
     // Thus, we pass all available executable program IDs as dummy_transceivers
     let dummy_transceivers = vec![
-        wormhole_anchor_sdk::wormhole::program::ID,
+        wormhole_anchor_sdk::wormhole::program::Wormhole::id(),
         wormhole_governance::ID,
     ];
     let num_dummy_transceivers: u8 = dummy_transceivers.len().try_into().unwrap();
@@ -89,7 +59,7 @@ async fn test_reregister_all_transceivers() {
     // register dummy transceivers
     for (idx, transceiver) in dummy_transceivers.iter().enumerate() {
         register_transceiver(
-            &test_data.ntt,
+            &good_ntt,
             RegisterTransceiver {
                 payer: ctx.payer.pubkey(),
                 owner: test_data.program_owner.pubkey(),
@@ -99,12 +69,12 @@ async fn test_reregister_all_transceivers() {
         .submit_with_signers(&[&test_data.program_owner], &mut ctx)
         .await
         .unwrap();
-        assert_transceiver_id(&mut ctx, &test_data, transceiver, idx as u8 + 1).await;
+        assert_transceiver_id(&good_ntt, &mut ctx, transceiver, idx as u8 + 1).await;
     }
 
     // set threshold = 1 (for baked-in transceiver) + num_dummy_transceivers
     set_threshold(
-        &test_data.ntt,
+        &good_ntt,
         SetThreshold {
             owner: test_data.program_owner.pubkey(),
         },
@@ -117,7 +87,7 @@ async fn test_reregister_all_transceivers() {
     // deregister dummy transceivers
     for (idx, transceiver) in dummy_transceivers.iter().enumerate() {
         deregister_transceiver(
-            &test_data.ntt,
+            &good_ntt,
             DeregisterTransceiver {
                 owner: test_data.program_owner.pubkey(),
                 transceiver: *transceiver,
@@ -126,26 +96,14 @@ async fn test_reregister_all_transceivers() {
         .submit_with_signers(&[&test_data.program_owner], &mut ctx)
         .await
         .unwrap();
-        assert_threshold(&mut ctx, &test_data, num_dummy_transceivers - idx as u8).await;
+        // assert threshold decreases
+        assert_threshold(&good_ntt, &mut ctx, num_dummy_transceivers - idx as u8).await;
     }
 
-    // deregister baked-in transceiver
-    deregister_transceiver(
-        &test_data.ntt,
-        DeregisterTransceiver {
-            owner: test_data.program_owner.pubkey(),
-            transceiver: example_native_token_transfers::ID,
-        },
-    )
-    .submit_with_signers(&[&test_data.program_owner], &mut ctx)
-    .await
-    .unwrap();
-    assert_threshold(&mut ctx, &test_data, 1).await;
-
-    // reregister dummy transceiver
+    // reregister dummy transceivers
     for (idx, transceiver) in dummy_transceivers.iter().enumerate() {
         register_transceiver(
-            &test_data.ntt,
+            &good_ntt,
             RegisterTransceiver {
                 payer: ctx.payer.pubkey(),
                 owner: test_data.program_owner.pubkey(),
@@ -155,24 +113,95 @@ async fn test_reregister_all_transceivers() {
         .submit_with_signers(&[&test_data.program_owner], &mut ctx)
         .await
         .unwrap();
-        assert_transceiver_id(&mut ctx, &test_data, transceiver, idx as u8 + 1).await;
-        assert_threshold(&mut ctx, &test_data, 1).await;
+        // assert transceiver_id and threshold are retained
+        assert_transceiver_id(&good_ntt, &mut ctx, transceiver, idx as u8 + 1).await;
+        assert_threshold(&good_ntt, &mut ctx, 1).await;
     }
 
     // reregister baked-in transceiver
     register_transceiver(
-        &test_data.ntt,
+        &good_ntt,
         RegisterTransceiver {
             payer: ctx.payer.pubkey(),
             owner: test_data.program_owner.pubkey(),
-            transceiver: example_native_token_transfers::ID,
+            transceiver: good_ntt_transceiver.program(),
         },
     )
     .submit_with_signers(&[&test_data.program_owner], &mut ctx)
     .await
     .unwrap();
-    assert_transceiver_id(&mut ctx, &test_data, &example_native_token_transfers::ID, 0).await;
-    assert_threshold(&mut ctx, &test_data, 1).await;
+    // assert transceiver_id and threshold are retained
+    assert_transceiver_id(&good_ntt, &mut ctx, &good_ntt_transceiver.program(), 0).await;
+    assert_threshold(&good_ntt, &mut ctx, 1).await;
+}
+
+#[tokio::test]
+async fn test_deregister_last_enabled_transceiver() {
+    let (mut ctx, test_data) = setup(Mode::Locking).await;
+
+    // attempt to deregister only enabled transceiver (baked-in transceiver)
+    let err = deregister_transceiver(
+        &good_ntt,
+        DeregisterTransceiver {
+            owner: test_data.program_owner.pubkey(),
+            transceiver: good_ntt_transceiver.program(),
+        },
+    )
+    .submit_with_signers(&[&test_data.program_owner], &mut ctx)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        err.unwrap(),
+        TransactionError::InstructionError(
+            0,
+            InstructionError::Custom(NTTError::ZeroThreshold.into())
+        )
+    );
+
+    // register arbitrary executable program as dummy transceiver
+    let dummy_transceiver = wormhole_anchor_sdk::wormhole::program::Wormhole::id();
+    register_transceiver(
+        &good_ntt,
+        RegisterTransceiver {
+            payer: ctx.payer.pubkey(),
+            owner: test_data.program_owner.pubkey(),
+            transceiver: dummy_transceiver,
+        },
+    )
+    .submit_with_signers(&[&test_data.program_owner], &mut ctx)
+    .await
+    .unwrap();
+
+    // deregister baked-in transceiver
+    deregister_transceiver(
+        &good_ntt,
+        DeregisterTransceiver {
+            owner: test_data.program_owner.pubkey(),
+            transceiver: good_ntt_transceiver.program(),
+        },
+    )
+    .submit_with_signers(&[&test_data.program_owner], &mut ctx)
+    .await
+    .unwrap();
+
+    // attempt to deregister last enabled transceiver (dummy transceiver)
+    let err = deregister_transceiver(
+        &good_ntt,
+        DeregisterTransceiver {
+            owner: test_data.program_owner.pubkey(),
+            transceiver: dummy_transceiver,
+        },
+    )
+    .submit_with_signers(&[&test_data.program_owner], &mut ctx)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        err.unwrap(),
+        TransactionError::InstructionError(
+            0,
+            InstructionError::Custom(NTTError::ZeroThreshold.into())
+        )
+    );
 }
 
 #[tokio::test]
@@ -180,7 +209,7 @@ async fn test_zero_threshold() {
     let (mut ctx, test_data) = setup(Mode::Locking).await;
 
     let err = set_threshold(
-        &test_data.ntt,
+        &good_ntt,
         SetThreshold {
             owner: test_data.program_owner.pubkey(),
         },
@@ -203,7 +232,7 @@ async fn test_threshold_too_high() {
     let (mut ctx, test_data) = setup(Mode::Burning).await;
 
     let err = set_threshold(
-        &test_data.ntt,
+        &good_ntt,
         SetThreshold {
             owner: test_data.program_owner.pubkey(),
         },

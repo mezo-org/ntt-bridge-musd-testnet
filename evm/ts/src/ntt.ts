@@ -30,9 +30,12 @@ import {
 import "@wormhole-foundation/sdk-evm-core";
 
 import {
+  decodeTrimmedAmount,
+  EncodedTrimmedAmount,
   EvmNttTransceiver,
   Ntt,
   NttTransceiver,
+  untrim,
   WormholeNttTransceiver,
 } from "@wormhole-foundation/sdk-definitions-ntt";
 import { Contract, type Provider, type TransactionRequest } from "ethers";
@@ -66,7 +69,7 @@ export class EvmNttWormholeTranceiver<N extends Network, C extends EvmChains>
     return "wormhole";
   }
 
-  getAddress(): ChainAddress<C> {
+  async getAddress(): Promise<ChainAddress<C>> {
     return {
       chain: this.manager.chain,
       address: toUniversal(this.manager.chain, this.address),
@@ -80,20 +83,23 @@ export class EvmNttWormholeTranceiver<N extends Network, C extends EvmChains>
   async *setPeer<P extends Chain>(
     peer: ChainAddress<P>
   ): AsyncGenerator<EvmUnsignedTransaction<N, C>> {
-    const coreBridge = new Contract(this.manager.contracts.coreBridge!, [
-        "function messageFee() public view returns (uint256)",
-      ],
+    const coreBridge = new Contract(
+      this.manager.contracts.coreBridge!,
+      ["function messageFee() public view returns (uint256)"],
       this.manager.provider
-    )
-    const messageFee = await coreBridge.getFunction("messageFee").staticCall()
+    );
+    const messageFee = await coreBridge.getFunction("messageFee").staticCall();
     const tx = await this.transceiver.setWormholePeer.populateTransaction(
       toChainId(peer.chain),
       universalAddress(peer)
     );
-    yield this.manager.createUnsignedTx({
-      ...tx,
-      value: messageFee
-    }, "WormholeTransceiver.registerPeer");
+    yield this.manager.createUnsignedTx(
+      {
+        ...tx,
+        value: messageFee,
+      },
+      "WormholeTransceiver.registerPeer"
+    );
   }
 
   async getPauser(): Promise<AccountAddress<C> | null> {
@@ -128,10 +134,16 @@ export class EvmNttWormholeTranceiver<N extends Network, C extends EvmChains>
   }
 
   async isEvmChain(chain: Chain): Promise<boolean> {
+    if (!("isWormholeEvmChain" in this.transceiver)) return false;
     return await this.transceiver.isWormholeEvmChain(toChainId(chain));
   }
 
   async *setIsEvmChain(chain: Chain, isEvm: boolean) {
+    if (!("setIsWormholeEvmChain" in this.transceiver)) {
+      throw new Error(
+        "setIsWormholeEvmChain is not supported by this ABI version"
+      );
+    }
     const tx = await this.transceiver.setIsWormholeEvmChain.populateTransaction(
       toChainId(chain),
       isEvm
@@ -153,12 +165,18 @@ export class EvmNttWormholeTranceiver<N extends Network, C extends EvmChains>
   }
 
   async isWormholeRelayingEnabled(destChain: Chain): Promise<boolean> {
+    if (!("isWormholeRelayingEnabled" in this.transceiver)) return false;
     return await this.transceiver.isWormholeRelayingEnabled(
       toChainId(destChain)
     );
   }
 
   async *setIsWormholeRelayingEnabled(destChain: Chain, enabled: boolean) {
+    if (!("setIsWormholeRelayingEnabled" in this.transceiver)) {
+      throw new Error(
+        "setIsWormholeRelayingEnabled is not supported by this ABI version"
+      );
+    }
     const tx =
       await this.transceiver.setIsWormholeRelayingEnabled.populateTransaction(
         toChainId(destChain),
@@ -171,12 +189,18 @@ export class EvmNttWormholeTranceiver<N extends Network, C extends EvmChains>
   }
 
   async isSpecialRelayingEnabled(destChain: Chain): Promise<boolean> {
+    if (!("isSpecialRelayingEnabled" in this.transceiver)) return false;
     return await this.transceiver.isSpecialRelayingEnabled(
       toChainId(destChain)
     );
   }
 
   async *setIsSpecialRelayingEnabled(destChain: Chain, enabled: boolean) {
+    if (!("setIsSpecialRelayingEnabled" in this.transceiver)) {
+      throw new Error(
+        "setIsSpecialRelayingEnabled is not supported by this ABI version"
+      );
+    }
     const tx =
       await this.transceiver.setIsSpecialRelayingEnabled.populateTransaction(
         toChainId(destChain),
@@ -285,22 +309,27 @@ export class EvmNtt<N extends Network, C extends EvmChains>
 
   async *setOwner(owner: AnyEvmAddress) {
     const canonicalOwner = new EvmAddress(owner).toString();
-    const tx = await this.manager.transferOwnership.populateTransaction(
-      canonicalOwner
-    );
+    const tx =
+      await this.manager.transferOwnership.populateTransaction(canonicalOwner);
     yield this.createUnsignedTx(tx, "Ntt.setOwner");
   }
 
   async *setPauser(pauser: AnyEvmAddress) {
     const canonicalPauser = new EvmAddress(pauser).toString();
-    const tx = await this.manager.transferPauserCapability.populateTransaction(
-      canonicalPauser
-    );
+    const tx =
+      await this.manager.transferPauserCapability.populateTransaction(
+        canonicalPauser
+      );
     yield this.createUnsignedTx(tx, "Ntt.setPauser");
   }
 
   async getThreshold(): Promise<number> {
     return Number(await this.manager.getThreshold());
+  }
+
+  async *setThreshold(threshold: number, payer?: AccountAddress<EvmChains>) {
+    const tx = await this.manager.setThreshold.populateTransaction(threshold);
+    yield this.createUnsignedTx(tx, "Ntt.setThreshold");
   }
 
   async isRelayingAvailable(destination: Chain): Promise<boolean> {
@@ -357,6 +386,7 @@ export class EvmNtt<N extends Network, C extends EvmChains>
 
   async getTokenDecimals(): Promise<number> {
     return await EvmPlatform.getDecimals(
+      this.network,
       this.chain,
       this.provider,
       this.tokenAddress
@@ -396,7 +426,9 @@ export class EvmNtt<N extends Network, C extends EvmChains>
 
     ixs.push({
       index: 0,
-      payload: this.xcvrs[0]!.encodeFlags({ skipRelay: !options.automatic }),
+      payload: this.xcvrs[0]!.encodeFlags({
+        skipRelay: !options.automatic,
+      }),
     });
 
     return ixs;
@@ -421,7 +453,9 @@ export class EvmNtt<N extends Network, C extends EvmChains>
       return abiVersion;
     } catch (e) {
       console.error(
-        `Failed to get NTT_MANAGER_VERSION from contract ${contracts.ntt?.manager}`
+        `Failed to get NTT_MANAGER_VERSION from contract ${
+          contracts.ntt?.manager
+        } on ${(await provider.getNetwork()).name}`
       );
       throw e;
     }
@@ -482,35 +516,12 @@ export class EvmNtt<N extends Network, C extends EvmChains>
     );
 
     if (options.wrapNative) {
-      // TODO: the contract should handle this for us
-      const wrappedNative = new Contract(this.tokenAddress, [
-        "function deposit() public payable",
-      ]);
-
-      const txReq = await wrappedNative
-        .getFunction("deposit")
-        .populateTransaction({ value: amount });
-
-      yield this.createUnsignedTx(addFrom(txReq, senderAddress), "Ntt.Deposit");
+      yield this.wrapNative(sender, amount);
     }
 
-    //TODO check for ERC-2612 (permit) support on token?
-    const tokenContract = EvmPlatform.getTokenImplementation(
-      this.provider,
-      this.tokenAddress
-    );
-
-    const allowance = await tokenContract.allowance(
-      senderAddress,
-      this.managerAddress
-    );
-    if (allowance < amount) {
-      const txReq = await tokenContract.approve.populateTransaction(
-        this.managerAddress,
-        amount
-      );
-
-      yield this.createUnsignedTx(addFrom(txReq, senderAddress), "Ntt.Approve");
+    const approveTx = await this.approve(sender, amount);
+    if (approveTx) {
+      yield approveTx;
     }
 
     const receiver = universalAddress(destination);
@@ -527,6 +538,46 @@ export class EvmNtt<N extends Network, C extends EvmChains>
       );
 
     yield this.createUnsignedTx(addFrom(txReq, senderAddress), "Ntt.transfer");
+  }
+
+  async wrapNative(sender: AccountAddress<C>, amount: bigint) {
+    const senderAddress = new EvmAddress(sender).toString();
+
+    // TODO: the contract should handle this for us
+    const wrappedNative = new Contract(this.tokenAddress, [
+      "function deposit() public payable",
+    ]);
+
+    const txReq = await wrappedNative
+      .getFunction("deposit")
+      .populateTransaction({ value: amount });
+
+    return this.createUnsignedTx(addFrom(txReq, senderAddress), "Ntt.Deposit");
+  }
+
+  async approve(sender: AccountAddress<C>, amount: bigint) {
+    const senderAddress = new EvmAddress(sender).toString();
+
+    const tokenContract = EvmPlatform.getTokenImplementation(
+      this.provider,
+      this.tokenAddress
+    );
+
+    const allowance = await tokenContract.allowance(
+      senderAddress,
+      this.managerAddress
+    );
+    if (allowance < amount) {
+      const txReq = await tokenContract.approve.populateTransaction(
+        this.managerAddress,
+        amount
+      );
+
+      return this.createUnsignedTx(
+        addFrom(txReq, senderAddress),
+        "Ntt.Approve"
+      );
+    }
   }
 
   // TODO: should this be some map of idx to transceiver?
@@ -556,7 +607,7 @@ export class EvmNtt<N extends Network, C extends EvmChains>
     const encoded: EncodedTrimmedAmount = (
       await this.manager.getOutboundLimitParams()
     ).limit;
-    const trimmedAmount: TrimmedAmount = decodeTrimmedAmount(encoded);
+    const trimmedAmount = decodeTrimmedAmount(encoded);
     const tokenDecimals = await this.getTokenDecimals();
 
     return untrim(trimmedAmount, tokenDecimals);
@@ -575,7 +626,7 @@ export class EvmNtt<N extends Network, C extends EvmChains>
     const encoded: EncodedTrimmedAmount = (
       await this.manager.getInboundLimitParams(toChainId(fromChain))
     ).limit;
-    const trimmedAmount: TrimmedAmount = decodeTrimmedAmount(encoded);
+    const trimmedAmount = decodeTrimmedAmount(encoded);
     const tokenDecimals = await this.getTokenDecimals();
 
     return untrim(trimmedAmount, tokenDecimals);
@@ -670,42 +721,5 @@ export class EvmNtt<N extends Network, C extends EvmChains>
       description,
       parallelizable
     );
-  }
-}
-
-type EncodedTrimmedAmount = bigint; // uint72
-
-type TrimmedAmount = {
-  amount: bigint;
-  decimals: number;
-};
-
-function decodeTrimmedAmount(encoded: EncodedTrimmedAmount): TrimmedAmount {
-  const decimals = Number(encoded & 0xffn);
-  const amount = encoded >> 8n;
-  return {
-    amount,
-    decimals,
-  };
-}
-
-function untrim(trimmed: TrimmedAmount, toDecimals: number): bigint {
-  const { amount, decimals: fromDecimals } = trimmed;
-  return scale(amount, fromDecimals, toDecimals);
-}
-
-function scale(
-  amount: bigint,
-  fromDecimals: number,
-  toDecimals: number
-): bigint {
-  if (fromDecimals == toDecimals) {
-    return amount;
-  }
-
-  if (fromDecimals > toDecimals) {
-    return amount / 10n ** BigInt(fromDecimals - toDecimals);
-  } else {
-    return amount * 10n ** BigInt(toDecimals - fromDecimals);
   }
 }

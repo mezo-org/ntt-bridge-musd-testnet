@@ -2,6 +2,8 @@
 cache/
 out/
 target/
+build/
+tsconfig.tsbuildinfo
 
 # Ignores development broadcast logs
 !/broadcast
@@ -25,3 +27,12 @@ node_modules
 
 # Tilt
 .wormhole
+
+# Claude code
+.claude/settings.local.json
+
+# Echidna outputs
+crytic-export/
+corpus/
+# Bun lockb (binary format, we use text format bun.lock instead)
+*.lockb

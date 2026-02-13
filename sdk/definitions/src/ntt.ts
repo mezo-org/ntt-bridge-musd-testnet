@@ -4,6 +4,7 @@ import {
   toChainId,
   type Chain,
   type Network,
+  type PlatformToChains,
 } from "@wormhole-foundation/sdk-base";
 
 import {
@@ -17,6 +18,7 @@ import {
   keccak256,
 } from "@wormhole-foundation/sdk-definitions";
 
+import { PublicKey } from "@solana/web3.js";
 import {
   NttManagerMessage,
   nativeTokenTransferLayout,
@@ -25,7 +27,6 @@ import {
   transceiverInstructionLayout,
   transceiverRegistration,
 } from "./layouts/index.js";
-import { PublicKey } from "@solana/web3.js";
 
 /**
  * @namespace Ntt
@@ -42,6 +43,28 @@ export namespace Ntt {
       [type: string]: string;
     };
     quoter?: string;
+    svmShims?: {
+      postMessageShimOverride?: string;
+      verifyVaaShimOverride?: string;
+    };
+    /** Estimated time of arrival in milliseconds */
+    eta?: number;
+  };
+
+  export const DEFAULT_SVM_SHIM_ADDRESSES: {
+    [chain in PlatformToChains<"Solana">]?: {
+      postMessageShim: string;
+      verifyVaaShim: string;
+    };
+  } = {
+    Solana: {
+      postMessageShim: "EtZMZM22ViKMo4r5y4Anovs3wKQ2owUmDpjygnMMcdEX",
+      verifyVaaShim: "EFaNWErqAtVWufdNb7yofSHHfWFos843DFpu4JBw24at",
+    },
+    Fogo: {
+      postMessageShim: "EtZMZM22ViKMo4r5y4Anovs3wKQ2owUmDpjygnMMcdEX",
+      verifyVaaShim: "EFaNWErqAtVWufdNb7yofSHHfWFos843DFpu4JBw24at",
+    },
   };
 
   export type Message = NttManagerMessage<typeof nativeTokenTransferLayout>;
@@ -56,8 +79,6 @@ export namespace Ntt {
     queue: boolean;
     /** Whether or not to request this transfer should be relayed, otherwise manual redemption is required */
     automatic?: boolean;
-    /** How much native gas on the destination to send along with the transfer */
-    gasDropoff?: bigint;
     /** Whether or not the token needs to be wrapped, only relevant for gas token transfers */
     wrapNative?: boolean;
   };
@@ -88,6 +109,12 @@ export namespace Ntt {
   export type TransceiverInstruction = {
     index: number;
     payload: Uint8Array;
+  };
+
+  export type TransceiverMeta = {
+    address: string;
+    index: number;
+    type: string;
   };
 
   export type Peer<C extends Chain> = {
@@ -185,6 +212,11 @@ export interface Ntt<N extends Network, C extends Chain> {
   ): AsyncGenerator<UnsignedTransaction<N, C>>;
 
   getThreshold(): Promise<number>;
+
+  setThreshold(
+    threshold: number,
+    payer?: AccountAddress<C>
+  ): AsyncGenerator<UnsignedTransaction<N, C>>;
 
   setPeer(
     peer: ChainAddress,
@@ -362,14 +394,14 @@ export interface Ntt<N extends Network, C extends Chain> {
 export interface NttTransceiver<
   N extends Network,
   C extends Chain,
-  A extends Ntt.Attestation
+  A extends Ntt.Attestation,
 > {
   getTransceiverType(payer?: AccountAddress<C>): Promise<string>;
 
   /**
    * Returns transceiver contract address on EVM and `emitterAccount` PDA address on Solana
    */
-  getAddress(): ChainAddress<C>;
+  getAddress(): Promise<ChainAddress<C>>;
 
   /** setPeer sets a peer address for a given chain
    * Note: Admin only
@@ -424,7 +456,7 @@ export interface WormholeNttTransceiver<N extends Network, C extends Chain>
 export interface SolanaNttTransceiver<
   N extends Network,
   C extends Chain,
-  A extends Ntt.Attestation
+  A extends Ntt.Attestation,
 > extends NttTransceiver<N, C, A> {
   programId: PublicKey;
 }
@@ -432,7 +464,7 @@ export interface SolanaNttTransceiver<
 export interface EvmNttTransceiver<
   N extends Network,
   C extends Chain,
-  A extends Ntt.Attestation
+  A extends Ntt.Attestation,
 > extends NttTransceiver<N, C, A> {}
 
 declare module "@wormhole-foundation/sdk-definitions" {

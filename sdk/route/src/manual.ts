@@ -24,6 +24,8 @@ import {
   signSendWait,
   finality,
   isNative,
+  guardians,
+  chainToPlatform,
 } from "@wormhole-foundation/sdk-connect";
 import "@wormhole-foundation/sdk-definitions-ntt";
 import { NttRoute } from "./types.js";
@@ -110,13 +112,6 @@ export class NttManualRoute<N extends Network>
       request.destination.decimals
     );
 
-    const gasDropoff = amount.units(
-      amount.parse(
-        options.gasDropoff ?? "0.0",
-        request.toChain.config.nativeTokenDecimals
-      )
-    );
-
     const wrapNative = isNative(request.source.id.address);
 
     const { srcContracts, dstContracts } = NttRoute.resolveNttContracts(
@@ -134,7 +129,6 @@ export class NttManualRoute<N extends Network>
         options: {
           queue: false,
           automatic: false,
-          gasDropoff,
           wrapNative,
         },
       },
@@ -163,7 +157,10 @@ export class NttManualRoute<N extends Network>
         token: request.destination.id,
         amount: dstAmount,
       },
-      eta: finality.estimateFinalityTime(request.fromChain.chain),
+      eta:
+        params.normalizedParams.sourceContracts.eta ??
+        finality.estimateFinalityTime(request.fromChain.chain) +
+          guardians.guardianAttestationEta * 1000,
     };
     const { fromChain, toChain } = request;
     const dstNtt = await toChain.getProtocol("Ntt", {
@@ -261,7 +258,7 @@ export class NttManualRoute<N extends Network>
       address: vaa.payload["sourceNttManager"],
     });
     const whTransceiver =
-      vaa.emitterChain === "Solana"
+      chainToPlatform(vaa.emitterChain) === "Solana"
         ? manager
         : canonicalAddress({
             chain: vaa.emitterChain,
