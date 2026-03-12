@@ -148,6 +148,12 @@ contract WormholeTransceiver is
 
     // ==================== Internal ========================================================
 
+    /// @dev Override _migrate to skip immutables check, since this version removes the
+    ///      wormholeRelayer immutable that existed in the previously deployed version.
+    function _migrate() internal override {
+        _setMigratesImmutables(true);
+    }
+
     function _quoteDeliveryPrice(
         uint16 targetChain,
         TransceiverStructs.TransceiverInstruction memory instruction
